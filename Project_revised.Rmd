@@ -1,0 +1,659 @@
+---
+title: "Project_revised"
+author: "Merint"
+date: "April 22, 2019"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(cartography)
+library(MASS)
+library(ISLR)
+library(rgdal)
+library(dbplyr)
+library(igraph)
+library(Matrix)
+library(gdata)
+library(magicfor)
+library(ggplot2)
+```
+
+```{r}
+head(gene)
+```
+
+Threshld for Protein Links
+```{r}
+protein[, 3] <- as.numeric(as.character( protein[, 3] ))
+protein_links_tresh<- protein[protein[,3]>850, ]
+```
+
+```{r}
+nodes<- unique(protein_links_tresh[,c("protein1")])
+nodes<- as.vector(nodes)
+```
+
+```{r}
+nrow(nodes)
+length(nodes)
+```
+
+```{r}
+network<- graph_from_data_frame(d=protein_links_tresh, vertices=nodes, directed=T)
+network
+```
+
+
+For Disease A
+
+```{r}
+disease_A_distance<- function(dA,protein_links_tresh,network){
+  dA_vert<- dA %>%
+      filter(Protein %in% protein_links_tresh$protein1)
+  
+  dA_nodes<- unique(dA_vert[,"Protein"])
+  dA_nodes<- as.vector(dA_nodes)
+  
+  dis_A<- distances(network, v = dA_nodes, to = dA_nodes, mode = c("out"), weights = NULL, algorithm = c("automatic"))
+  
+  dis_A_df<- as.data.frame(dis_A)
+  
+  dis_A_df <- do.call(data.frame, lapply(dis_A_df, function(x) {
+  replace(x, is.infinite(x), NA)
+  })
+)
+  
+  dis_A<-data.matrix(dis_A_df)
+  
+  ut_disA<- upperTriangle(dis_A)
+  
+  dist_A<- mean(ut_disA, na.rm=T)
+  
+  return(dist_A)
+}
+  
+```
+
+
+
+For Dosease B
+
+```{r}
+disease_B_distance<- function(dB,protein_links_tresh,network) {
+  dB_vert<- dB %>%
+      filter(Protein %in% protein_links_tresh$protein1)
+  
+  dB_nodes<- unique(dB_vert[,"Protein"])
+  dB_nodes<- as.vector(dB_nodes)
+  
+  dis_B<- distances(network, v = dB_nodes, to = dB_nodes, mode = c("out"), weights = NULL, algorithm = c("automatic"))
+  
+  dis_B_df<- as.data.frame(dis_B)
+  
+  dis_B_df <- do.call(data.frame, lapply(dis_B_df, function(x) {
+  replace(x, is.infinite(x), NA)
+  })
+)
+  
+  dis_B<-data.matrix(dis_B_df)
+  
+  ut_disB<- upperTriangle(dis_B)
+  
+  dist_B<- mean(ut_disB, na.rm=T)
+  
+  return(dist_B)
+  
+}
+```
+
+
+For AB
+```{r}
+disease_AB_distance<- function(dA,dB,protein_links_tresh,network) {
+#  dAB_vert<- dAB %>%
+ #     filter(Protein %in% protein_links_tresh$protein1)
+  
+#  dAB_nodes<- unique(dAB_vert[,"Protein"])
+#  dAB_nodes<- as.vector(dAB_nodes)
+  
+  dis_AB<- distances(network, v = dA_nodes, to = dB_nodes, mode = c("out"), weights = NULL, algorithm = c("automatic"))
+  
+  dis_AB_df<- as.data.frame(dis_AB)
+  
+  dis_AB_df <- do.call(data.frame, lapply(dis_AB_df, function(x) {
+  replace(x, is.infinite(x), NA)
+  })
+)
+  
+  dis_AB<-data.matrix(dis_AB_df)
+  
+  
+  dist_AB<- mean(dis_AB, na.rm=T)
+  
+  return(dist_AB)
+
+}
+```
+
+Disease selection
+```{r}
+dA<- dmapp[dmapp$diseaseId=="C0007102", ]
+dB<- dmapp[dmapp$diseaseId=="C0011265", ]
+dAB<-rbind(dA,dB)
+```
+
+
+Distances
+```{r}
+distance_A<-disease_A_distance(dA,protein_links_tresh,network)
+distance_B<-disease_B_distance(dB,protein_links_tresh,network)
+distance_AB<-disease_AB_distance(dA,dB,protein_links_tresh,network)
+
+#Shortest distance (sAB)
+sAB<- distance_AB - (distance_A+distance_B)/2
+sAB
+```
+
+
+```{r}
+magic_for(print, silent = TRUE)
+#length(Comorbidity_modified_new$Disease1)
+for (i in seq_len(length(CM$Disease1))){
+  dA<- dmapp[dmapp$diseaseName==as.character(CM[i,1]), ]
+  dB<- dmapp[dmapp$diseaseName==as.character(CM[i,2]), ]
+  
+  distance_A<-disease_A_distance(dA,protein_links_tresh,network)
+  distance_B<-disease_B_distance(dB,protein_links_tresh,network)
+  distance_AB<-disease_AB_distance(dA,dB,protein_links_tresh,network)
+  
+  sAB<- distance_AB - (distance_A+distance_B)/2
+  print(sAB)
+}
+magic_result_as_dataframe()
+```
+
+```{r}
+result<-magic_result_as_dataframe()
+#write.xlsx(result, "D:/MSc Data Engineering/Semester 2/Advanced Project 1/Data/Comorbidity Data/result.xlsx")
+write.table(result, "D:/MSc Data Engineering/Semester 2/Advanced Project 1/Data/Comorbidity Data/result2.txt", sep="\t")
+```
+
+
+```{r}
+CM <- data.frame(lapply(CM, function(x) {gsub("Congenital atresia or stricture of osseous meatus", "Choanal Atresia", x)}))
+```
+
+```{r}
+CM<- CM[- grep("Disorders of Porphyrin Metabolism", CM$Disease2),]
+```
+
+```{r}
+write.table(CM, file="CM.csv", sep=",")
+```
+
+Boxplot
+```{r}
+boxplot(RR_log~sAB_poll, data = try, xlab = "Distance",
+   ylab = "Relative Risk", main = "Comorbidity" )
+```
+
+```{r}
+CM_Pt$sAB_round <- as.factor(CM_Pt$sAB_round)
+p <- ggplot(CM_Pt, aes(x=sAB_round, y=RR_log)) + 
+  geom_boxplot(fill='#A4A4A4', color="red",outlier.size=-1)+
+  theme_classic()
+p
+```
+
+```{r}
+plot(CM_Pt$sAB_pool, CM_Pt$RR_log, main="Comorbidity", 
+   xlab="Distance sAB", ylab="Relative Risk Log scale")
+abline(lm(CM_Pt$RR_log~CM_Pt$sAB_pool), col="red")
+```
+```{r}
+try$ROUND <- as.factor(try$ROUND)
+p <- ggplot(try, aes(x=ROUND, y=RR_log)) + 
+  geom_boxplot(fill='#A4A4A4', color="red")+
+  theme_classic()
+p
+```
+
+Comorbidity Data
+```{r}
+names(Comorbidity_modified)[names(Comorbidity_modified) == "Name1"] <- "Disease1"
+names(Comorbidity_modified)[names(Comorbidity_modified) == "Name2"] <- "Disease2"
+```
+
+```{r}
+Comorbidity_modified[]<-lapply(Comorbidity_modified, gsub, pattern='\\[', replacement='')
+Comorbidity_modified[]<-lapply(Comorbidity_modified, gsub, pattern='\\]', replacement='')
+```
+```{r}
+d1c<- Comorbidity_modified[,1]
+#d1c<- as.vector(d1c$Disease1)
+```
+```{r}
+d1cu<- d1c %>% distinct(Disease1, .keep_all = TRUE)
+#unique(d1c)
+#d1c<-d1c[1:286]
+d1cu<-as.vector(d1cu)
+d1cu
+```
+
+```{r}
+d2c<- Comorbidity_modified[,3]
+
+d2cu<- d2c %>% distinct(Disease2, .keep_all = TRUE)
+#unique(d1c)
+#d1c<-d1c[1:286]
+d2cu
+```
+
+
+```{r}
+data_try <- data.frame(lapply(Comorbidity_modified, function(x) {gsub("UNSPECIFIED PULMONARY TUBERCULOSIS CONFIRMATION UN", "Tuberculosis", x)}))
+
+```
+```{r}
+data_try <- data.frame(lapply(data_try, function(x) {gsub("HUMAN IMMUNODEFICIENCY VIRUS (HIV) DISEASE", "HIV Coinfection", x)}))
+```
+
+```{r}
+data_try<- data_try[!data_try$Disease1=="UNSPECIFIED DISEASES DUE TO MYCOBACTERIA"]
+```
+```{r}
+data_try[5,1]
+```
+```{r}
+disease_gene<- dmapp[!(merge$diseaseType=="phenotype"), ]
+#names(dgu)[1]<- "diseaseName"
+dgu<- disease_gene %>% distinct(diseaseName, .keep_all = TRUE)
+dgu<- dgu[,6]
+dgu<- as.vector(dgu)
+
+```
+
+```{r}
+length(dgu)
+```
+
+```{r}
+print(dgu[1])
+#magic_for(print, silent = TRUE)
+#for (i in seq_len(length(dgu))){
+grep(dgu[849],d1cu,ignore.case=TRUE,value=TRUE)
+ # print(dgu[i])}
+#check
+#magic_result_as_vector()
+
+```
+```{r}
+str_subset(dgu,d1cu)
+```
+
+```{r}
+X<- dA$geneSymbol
+Y<- dA$geneId
+plot(X,Y, xlab="Genes in Dataset", ylab="dA used for consideration", pch=19)
+```
+
+```{r}
+test<- c("Mer", "tanvi")
+test2<- c("Meri", "me", "Tan")
+check<- NA
+len=length(test)
+#print(len)
+magic_for(print, silent = TRUE)
+for (i in len){
+  #print(i)
+  #print("Hi")
+  #print(test[i])
+  #lol<-test[i]
+  result<- agrep("Merint",test2,ignore.case=TRUE)
+  check<-result
+  print(check)
+  #i=i+1
+  #check
+  #sprintf("pos %d",check)
+  #append(check2,check)
+  #print(check)
+}
+magic_result_as_vector()
+```
+
+```{r}
+test<- c("Mer", "tanvi")
+test2<- c("Meri", "me", "Tan")
+grep(test[1],test2,ignore.case=TRUE, value=TRUE)
+```
+
+
+
+```{r}
+pmatch("Abnormalities, Multiple", disease_mappings$vocabularyName, nomatch = NA, duplicates.ok = FALSE)
+  
+
+```
+
+
+```{r}
+magic_for(print, silent = TRUE)
+for(i in seq_len(length(tp$Names))){
+  for (j in seq_len(length(tp$Names)-i)){
+    out<-c(as.character(tp[i,1]), as.character(tp[j+i,1]))
+     print(out)
+  }
+ 
+}
+magic_result_as_vector()
+```
+```{r}
+magic_for(print, silent = TRUE)
+#length(Comorbidity_modified_new$Disease1)
+for (i in seq_len(length(tp$Disease_ID))){
+  dA<- dmapp[dmapp$diseaseId==as.character(tp[i,3]), ]
+  for(j in seq_len(length(tp$Disease_ID)-i)){
+    
+    dB<- dmapp[dmapp$diseaseId==as.character(tp[j+i,3]), ]
+  
+    distance_A<-disease_A_distance(dA,protein_links_tresh,network)
+    distance_B<-disease_B_distance(dB,protein_links_tresh,network)
+    distance_AB<-disease_AB_distance(dA,dB,protein_links_tresh,network)
+   
+    sAB<- distance_AB - (distance_A+distance_B)/2
+    
+    output<-c(as.character(tp[i,2]), as.character(tp[j+i,2]), sAB)
+    
+    print(output)
+  }
+}
+magic_result_as_dataframe()
+```
+
+
+```{r}
+magic_for(print, silent = TRUE)
+#length(Comorbidity_modified_new$Disease1)
+for (i in seq_len(length(Dis_names$Disease_ID))){
+  for(j in seq_len(length(Dis_names$Disease_ID)-i)){
+    dA<- dmapp[dmapp$diseaseId==as.character(Dis_names[i,3]), ]
+    dB<- dmapp[dmapp$diseaseId==as.character(Dis_names[j+i,3]), ]
+  
+    distance_A<-disease_A_distance(dA,protein_links_tresh,network)
+    distance_B<-disease_B_distance(dB,protein_links_tresh,network)
+    distance_AB<-disease_AB_distance(dA,dB,protein_links_tresh,network)
+   
+    sAB<- distance_AB - (distance_A+distance_B)/2
+    
+    output<-c(as.character(Dis_names[i,2]), as.character(Dis_names[j+i,2]), sAB)
+    
+    print(output)
+  }
+}
+magic_result_as_vector()
+```
+```{r}
+
+DataS4<- DataS4_disease_pairs[- grep("collagen diseases", DataS4_disease_pairs$disease_A),]
+
+```
+```{r}
+DataS4<- Paper_result %>% inner_join(Result_new, by=c("disease_A","disease_B"))
+
+```
+```{r}
+DataS4_t<- Paper_result %>% inner_join(Result_new_t, by=c("disease_A","disease_B"))
+```
+```{r}
+plot(DataS4$`s_AB (observed)`, DataS4$sAB, main="sAB comparison", 
+   xlab="sAB_Paper", ylab="sAB_observation")
+#abline(lm(DataS4$`s_AB (observed)`~DataS4$sAB), col="red")
+```
+```{r}
+ggplot(DataS4, aes(x=`s_AB (observed)`, y=sAB),main="sAB comparison", 
+   xlab="sAB_Paper", ylab="sAB_observation") + geom_point()
+```
+
+```{r}
+Box<- ggplot(DataS4, aes(x=`s_AB (observed)`, y=sAB)) + 
+  geom_boxplot(fill='#A4A4A4', color="red",outlier.size=1)+
+  theme_classic()
+Box
+
+hist(DataS4$`s_AB (observed)`)
+hist(DataS4_t$sAB)
+```
+```{r}
+diseases<- merge[!(merge$diseaseType=="group"), ]
+diseases<-diseases[!(diseases$diseaseType=="phenotype"), ]
+```
+```{r}
+diseases_names<-diseases$diseaseId[duplicated(diseases$diseaseId)]
+```
+```{r}
+disease_id<-unique(diseases_names)
+disease_id
+```
+```{r}
+magic_for(print, silent = TRUE)
+for (i in seq_len(length(disease_id))){
+  for(j in seq_len(length(disease_id)-i)){
+    dA<- dmapp[dmapp$diseaseId==as.character(disease_id[i]), ]
+    dB<- dmapp[dmapp$diseaseId==as.character(disease_id[j+i]), ]
+  
+    distance_A<-disease_A_distance(dA,protein_links_tresh,network)
+    distance_B<-disease_B_distance(dB,protein_links_tresh,network)
+    distance_AB<-disease_AB_distance(dA,dB,protein_links_tresh,network)
+   
+    sAB<- distance_AB - (distance_A+distance_B)/2
+    
+    #output<-c(as.character(Dis_names[i,2]), as.character(Dis_names[j+i,2]), sAB)
+    
+    print(sAB)
+  }
+}
+disease_result<- magic_result_as_vector()
+```
+```{r}
+phenotype<- merge[!(merge$diseaseType=="group"), ]
+phenotype<-phenotype[!(phenotype$diseaseType=="disease"), ]
+phenotype_names<-phenotype$diseaseId[duplicated(phenotype$diseaseId)]
+phenotype_id<-unique(phenotype_names)
+phenotype_id <- sample(phenotype_id,300)
+phenotype_id
+```
+
+```{r}
+magic_for(print, silent = TRUE)
+for (i in seq_len(length(phenotype_id))){
+  for(j in seq_len(length(phenotype_id)-i)){
+    dA<- dmapp[dmapp$diseaseId==as.character(phenotype_id[i]), ]
+    dB<- dmapp[dmapp$diseaseId==as.character(phenotype_id[j+i]), ]
+  
+    distance_A<-disease_A_distance(dA,protein_links_tresh,network)
+    distance_B<-disease_B_distance(dB,protein_links_tresh,network)
+    distance_AB<-disease_AB_distance(dA,dB,protein_links_tresh,network)
+   
+    sAB<- distance_AB - (distance_A+distance_B)/2
+    
+    #output<-c(as.character(Dis_names[i,2]), as.character(Dis_names[j+i,2]), sAB)
+    
+    print(sAB)
+  }
+}
+phenotype_result<- magic_result_as_vector()
+```
+```{r}
+p1<- hist(disease_sAB$sAB_disease)
+ggplot(disease_sAB, aes(x=sAB_disease)) + geom_histogram(color="red")
+```
+
+```{r}
+p2<- hist(traits_sAB$sAB_traits)
+ggplot(traits_sAB, aes(x=sAB_traits)) + geom_histogram(color="red")
+```
+```{r}
+plot(p1, col=rgb(0,0,1,1/4))  # first histogram
+plot(p2, col=rgb(1,0,0,1/4), add=T)  # second
+```
+```{r}
+colnames(disease_sAB)<- c("sAB","type")
+colnames(traits_sAB)<- c("sAB","type")
+```
+```{r}
+disease_sAB$type <- 'Disease'
+traits_sAB$type <- 'Traits'
+sAB_total <- rbind(disease_sAB, traits_sAB)
+```
+
+```{r}
+ggplot(sAB_total, aes(sAB, fill = type)) + 
+   geom_histogram(alpha=0.5)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Trial
+```{r}
+dA_vert<- dA %>%
+      filter(Protein %in% protein_links_tresh$protein1)
+dA_nodes<- unique(dA_vert[,"Protein"])
+dA_nodes<- as.vector(dA_nodes)
+dA_nodes
+```
+
+Shortest path dA
+```{r}
+dis_A<- distances(network, v = dA_nodes, to = dA_nodes, mode = c("out"), weights = NULL, algorithm = c("automatic"))
+```
+
+```{r}
+dis_A_df<- as.data.frame(dis_A)
+```
+
+```{r}
+dis_A_df <- do.call(data.frame, lapply(dis_A_df, function(x) {
+  replace(x, is.infinite(x), NA)
+  })
+)
+```
+
+```{r}
+dis_A<-data.matrix(dis_A_df)
+```
+
+```{r}
+ut_disA<- upperTriangle(dis_A)
+ut_disA
+```
+```{r}
+dist_A<- mean(ut_disA, na.rm=T)
+dist_A
+```
+
+For Disease B
+
+```{r}
+dB_vert<- dB %>%
+      filter(Protein %in% protein_links_tresh$protein1)
+```
+
+```{r}
+dB_nodes<- unique(dB_vert[,"Protein"])
+dB_nodes<- as.vector(dB_nodes)
+dB_nodes
+```
+
+
+Shortest path dB
+```{r}
+dis_B<- distances(network, v = dB_nodes, to = dB_nodes, mode = c("out"), weights = NULL, algorithm = c("automatic"))
+```
+
+```{r}
+dis_B_df<- as.data.frame(dis_B)
+```
+
+```{r}
+dis_B_df <- do.call(data.frame, lapply(dis_B_df, function(x) {
+  replace(x, is.infinite(x), NA)
+  })
+)
+```
+
+```{r}
+dis_B<-data.matrix(dis_B_df)
+```
+
+```{r}
+ut_disB<- upperTriangle(dis_B)
+ut_disB
+```
+
+```{r}
+dist_B<- mean(ut_disB, na.rm=T)
+dist_B
+```
+
+```{r}
+dAB_vert<- dAB %>%
+      filter(Protein %in% protein_links_tresh$protein1)
+```
+
+```{r}
+dAB_nodes<- unique(dAB_vert[,"Protein"])
+dAB_nodes<- as.vector(dAB_nodes)
+dAB_nodes
+```
+
+Shortest path dAB
+```{r}
+dis_AB<- distances(network, v = dA_nodes, to = dB_nodes, mode = c("out"), weights = NULL, algorithm = c("automatic"))
+```
+
+```{r}
+dis_AB_df<- as.data.frame(dis_AB)
+```
+
+```{r}
+dis_AB_df <- do.call(data.frame, lapply(dis_AB_df, function(x) {
+  replace(x, is.infinite(x), NA)
+  })
+)
+```
+
+```{r}
+dis_AB<-data.matrix(dis_AB_df)
+```
+
+```{r}
+#ut_disAB<- upperTriangle(dis_AB)
+ut_disAB
+```
+```{r}
+dis_AB_list<- as.list(dis_AB)
+```
+```{r}
+dist_AB<- mean(dis_AB, na.rm=T)
+dist_AB
+```
+
+
+
+Shortest distance (sAB)
+```{r}
+sAB_t<- dist_AB - (dist_A+dist_B)/2
+sAB_t
+```
